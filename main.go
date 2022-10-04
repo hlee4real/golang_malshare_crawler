@@ -13,28 +13,22 @@ import (
 	"strings"
 	"time"
 
+	// . "github.com/gobeam/mongo-go-pagination"
+
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 type Site struct {
 	URL string
 }
-type Crawler struct {
-	ID     primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	Date   string             `json:"date" bson:"date"`
-	Md5    []string           `json:"md5" bson:"md5"`
-	Sha1   []string           `json:"sha1" bson:"sha1"`
-	Sha256 []string           `json:"sha256" bson:"sha256"`
-}
 
 type LungLinh struct {
-	Value string ``
-	Type  string ``
-	Date  string ``
+	Value string `json:"value" bson:"value"`
+	Type  string `json:"type" bson:"type"`
+	Date  string `json:"date" bson:"date"`
 }
 
 type APIResponse struct {
@@ -55,31 +49,25 @@ var regexMd5 = regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`)
 var regexSha1 = regexp.MustCompile(`\b[a-fA-F0-9]{40}\b`)
 var regexSha256 = regexp.MustCompile(`\b[a-fA-F0-9]{64}\b`)
 
+// docker momngo
 func main() {
 	// use config .env
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb+srv://hoangdznka123:hoangdznka123@cluster0.okc3a4u.mongodb.net/?retryWrites=true&w=majority"))
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI("mongodb://localhost:27017"))
+	// client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://localhost:27017"))
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	err = client.Connect(ctx)
-	if err != nil {
-		fmt.Println(err)
-		//
-	}
-	defer client.Disconnect(ctx)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	//
+	// 	return
+	// }
+	// defer client.Disconnect(ctx)
 
-	err = client.Ping(ctx, readpref.Primary())
-	if err != nil {
-		fmt.Println(err)
-		//
-	}
 	collection = client.Database("malshare").Collection("crawler")
-	// malshareDatabase := client.Database("malshare")
-	// collectionMd5 := malshareDatabase.Collection("md5")
-	// collectionSha1 := malshareDatabase.Collection("sha1")
-	// collectionSha256 := malshareDatabase.Collection("sha256")
 
 	resp, err := http.Get("https://malshare.com/daily/")
 	if err != nil {
@@ -150,13 +138,13 @@ func main() {
 		var sha1Data []string = regexSha1.FindAllString(res, -1)
 		var sha256Data []string = regexSha256.FindAllString(res, -1)
 		for i := 0; i < len(md5Data); i++ {
-			md5Result += md5Data[i] + "\n"
+			md5Result += md5Data[i] + "_"
 		}
 		for i := 0; i < len(sha1Data); i++ {
-			sha1Result += sha1Data[i] + "\n"
+			sha1Result += sha1Data[i] + "_"
 		}
 		for i := 0; i < len(sha256Data); i++ {
-			sha256Result += sha256Data[i] + "\n"
+			sha256Result += sha256Data[i] + "_"
 		}
 		// check dupplicate value of each type
 		collection.InsertOne(ctx, bson.D{
@@ -174,13 +162,21 @@ func main() {
 			{Key: "Type", Value: "sha256"},
 			{Key: "Date", Value: strNewArray[i]},
 		})
-		// if err := writeFileMd5(newPath, res); err != nil {
-		// 	fmt.Println(err)
-		// 	return
-		// }
-		// go writeFileSha1(newPath, res)
-		// go writeFileSha256(newPath, res)
+		if err := writeFileMd5(newPath, res); err != nil {
+			fmt.Println(err)
+			return
+		}
+		go writeFileSha1(newPath, res)
+		go writeFileSha256(newPath, res)
 	}
+	router := gin.Default()
+	router.GET("/lunglinh", getAllLungLinh())
+	router.GET("/lunglinh/:value", getALungLinh())
+	router.POST("/lunglinh", createLungLinh())
+	router.PUT("/lunglinh/:value", updateLungLinh())
+	router.DELETE("/lunglinh/:value", deleteLungLinh())
+	router.Run()
+	// router.GET("/lunglinh", getLungLinh)
 
 }
 func writeFileMd5(newPath string, res string) error {
@@ -287,3 +283,142 @@ func makeRequest(message <-chan Site, c *http.Client, result chan<- string) erro
 }
 
 // {"message": "", "code": 0, "data": {}} 0 --> success, != 0 --> error
+
+func getAllLungLinh() gin.HandlerFunc {
+	// getAll --> paginate --> limit & offset, page & perPage
+
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		var lunglinhs []LungLinh
+
+		defer cancel()
+		results, err := collection.Find(ctx, bson.M{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{Message: "Error", Code: 1, Data: nil})
+			return
+		}
+		defer results.Close(ctx)
+		// err = results.All(ctx, &lunglinhs)
+		// if err != nil {
+		// 	// fmt, xyz
+		// 	fmt.Println(err)
+		// 	return
+		// }
+		var page int = 1
+		var perPage int64 = 10
+		// total, _ := collection.CountDocuments(ctx, bson.M{})
+		findOptions := options.Find()
+		findOptions.SetSkip((int64(page) - 1) * perPage)
+		findOptions.SetLimit(perPage)
+		cursor, _ := collection.Find(ctx, bson.M{}, findOptions)
+		defer cursor.Close(ctx)
+		for cursor.Next(ctx) {
+			var lunglinh LungLinh
+			cursor.Decode(&lunglinh)
+			lunglinhs = append(lunglinhs, lunglinh)
+		}
+
+		c.JSON(http.StatusOK, APIResponse{Message: "Success", Code: 0, Data: lunglinhs})
+	}
+}
+
+func createLungLinh() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		var lunglinh LungLinh
+		defer cancel()
+		if err := c.BindJSON(&lunglinh); err != nil {
+			c.JSON(http.StatusBadRequest, APIResponse{Message: "Error", Code: 1, Data: nil})
+			return
+		}
+		newLungLinh := LungLinh{
+			Value: lunglinh.Value,
+			Type:  lunglinh.Type,
+			Date:  lunglinh.Date,
+		}
+		result, err := collection.InsertOne(ctx, newLungLinh)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{Message: "Error", Code: 1, Data: nil})
+		}
+		c.JSON(http.StatusCreated, APIResponse{Message: "Success", Code: 0, Data: result})
+	}
+}
+func getALungLinh() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		value := c.Param("value")
+		var lunglinh LungLinh
+		defer cancel()
+
+		err := collection.FindOne(ctx, bson.M{"Value": value}).Decode(&lunglinh)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{Message: "Error", Code: 1, Data: nil})
+			return
+		}
+		c.JSON(http.StatusOK, APIResponse{Message: "Success", Code: 0, Data: lunglinh})
+	}
+}
+
+func updateLungLinh() gin.HandlerFunc {
+	// by value
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		value := c.Param("value")
+		var lunglinh LungLinh
+		defer cancel()
+		if err := c.BindJSON(&lunglinh); err != nil {
+			c.JSON(http.StatusBadRequest, APIResponse{Message: "Error", Code: 1, Data: nil})
+			return
+		}
+		updateLungLinh := LungLinh{
+			Value: lunglinh.Value,
+			Type:  lunglinh.Type,
+			Date:  lunglinh.Date,
+		}
+		result, err := collection.UpdateOne(ctx, bson.M{"Value": value}, bson.M{"$set": updateLungLinh})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{Message: "Error", Code: 1, Data: nil})
+			return
+		}
+		var updatedLungLinh LungLinh
+		if result.MatchedCount == 1 {
+			err := collection.FindOne(ctx, bson.M{"Value": value}).Decode(&updatedLungLinh)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, APIResponse{Message: "Error", Code: 1, Data: nil})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, APIResponse{Message: "Success", Code: 0, Data: updatedLungLinh})
+	}
+}
+func deleteLungLinh() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		value := c.Param("value")
+		defer cancel()
+		result, err := collection.DeleteOne(ctx, bson.M{"Value": value})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{Message: "Error", Code: 1, Data: nil})
+			return
+		}
+		if result.DeletedCount < 1 {
+			c.JSON(http.StatusNotFound, APIResponse{Message: "Not found", Code: 1, Data: nil})
+			return
+		}
+		c.JSON(http.StatusOK, APIResponse{Message: "Success", Code: 0, Data: result})
+	}
+}
+
+// write benchmark func for find
+// func BenchmarkFind(b *testing.B) {
+// 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// 	defer cancel()
+// 	for i := 0; i < b.N; i++ {
+// 		//find row md5 in collection
+// 		results, err := collection.Find(ctx, bson.M{"Type": "md5"})
+// 		if err != nil {
+// 			b.Errorf("Error: %v", err)
+// 		}
+// 		defer results.Close(ctx)
+// 	}
+// }
