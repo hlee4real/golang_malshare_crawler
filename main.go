@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -53,13 +51,12 @@ var regexSha256 = regexp.MustCompile(`\b[a-fA-F0-9]{64}\b`)
 func main() {
 	// use config .env
 	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI("mongodb://localhost:27017"))
-	// client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://localhost:27017"))
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	err = client.Connect(ctx)
+	// ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	// err = client.Connect(ctx)
 	// if err != nil {
 	// 	fmt.Println(err)
 	// 	//
@@ -67,7 +64,7 @@ func main() {
 	// }
 	// defer client.Disconnect(ctx)
 
-	collection = client.Database("malshare").Collection("crawler")
+	collection = client.Database("newmalshare").Collection("crawler")
 
 	resp, err := http.Get("https://malshare.com/daily/")
 	if err != nil {
@@ -99,76 +96,86 @@ func main() {
 			return
 		}
 	}
-	t := &http.Transport{
-		Dial: (&net.Dialer{
-			Timeout:   time.Hour * 2 * 10,
-			KeepAlive: time.Hour * 10,
-		}).Dial,
-	}
-	c := &http.Client{
-		Transport: t,
-	}
-	var urls [5300]string // 5400 ?
-	// fixed size, dynamic size: use append()
-	for i := 0; i < len(strArray); i++ {
-		urls[i] = fmt.Sprintf("https://malshare.com/daily/%s/malshare_fileList.%s.all.txt", strArray[i], strArray[i])
-	}
+	// t := &http.Transport{
+	// 	Dial: (&net.Dialer{
+	// 		Timeout:   time.Hour * 2 * 10,
+	// 		KeepAlive: time.Hour * 10,
+	// 	}).Dial,
+	// }
+	// c := &http.Client{
+	// 	Transport: t,
+	// }
+	// var urls = make([]string, len(strArray))
+	// for i := 0; i < len(strArray); i++ {
+	// 	urls[i] = fmt.Sprintf("https://malshare.com/daily/%s/malshare_fileList.%s.all.txt", strArray[i], strArray[i])
+	// }
 
-	message := make(chan Site, len(strArray)*3)
-	result := make(chan string, len(strArray)*3)
-	for w := 1; w <= 10; w++ {
-		go makeRequest(message, c, result)
-	}
-	for _, url := range urls {
-		message <- Site{URL: url}
-	}
-	close(message)
-	for i := 0; i < len(strArray); i++ {
-		newPath := filepath.Join("newmalshare", strNewArray[i])
-		err := os.MkdirAll(newPath, os.ModePerm)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		res := <-result
-		var md5Data []string = regexMd5.FindAllString(res, -1)
-		var md5Result string
-		var sha1Result string
-		var sha256Result string
-		var sha1Data []string = regexSha1.FindAllString(res, -1)
-		var sha256Data []string = regexSha256.FindAllString(res, -1)
-		for i := 0; i < len(md5Data); i++ {
-			md5Result += md5Data[i] + "_"
-		}
-		for i := 0; i < len(sha1Data); i++ {
-			sha1Result += sha1Data[i] + "_"
-		}
-		for i := 0; i < len(sha256Data); i++ {
-			sha256Result += sha256Data[i] + "_"
-		}
-		// check dupplicate value of each type
-		collection.InsertOne(ctx, bson.D{
-			{Key: "Value", Value: md5Result},
-			{Key: "Type", Value: "md5"},
-			{Key: "Date", Value: strNewArray[i]},
-		})
-		collection.InsertOne(ctx, bson.D{
-			{Key: "Value", Value: sha1Result},
-			{Key: "Type", Value: "sha1"},
-			{Key: "Date", Value: strNewArray[i]},
-		})
-		collection.InsertOne(ctx, bson.D{
-			{Key: "Value", Value: sha256Result},
-			{Key: "Type", Value: "sha256"},
-			{Key: "Date", Value: strNewArray[i]},
-		})
-		if err := writeFileMd5(newPath, res); err != nil {
-			fmt.Println(err)
-			return
-		}
-		go writeFileSha1(newPath, res)
-		go writeFileSha256(newPath, res)
-	}
+	// message := make(chan Site, len(strArray)*3)
+	// result := make(chan string, len(strArray)*3)
+	// for w := 1; w <= 10; w++ {
+	// 	go makeRequest(message, c, result)
+	// }
+	// for _, url := range urls {
+	// 	message <- Site{URL: url}
+	// }
+	// close(message)
+	// for i := 0; i < len(strArray); i++ {
+	// 	newPath := filepath.Join("newmalshare", strNewArray[i])
+	// 	err := os.MkdirAll(newPath, os.ModePerm)
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 		return
+	// 	}
+	// 	res := <-result
+	// 	var md5Data []string = regexMd5.FindAllString(res, -1)
+	// 	// var md5Result string
+	// 	// var sha1Result string
+	// 	// var sha256Result string
+	// 	var sha1Data []string = regexSha1.FindAllString(res, -1)
+	// 	var sha256Data []string = regexSha256.FindAllString(res, -1)
+	// 	for i := 0; i < len(md5Data); i++ {
+	// 		collection.InsertOne(ctx, bson.D{
+	// 			{Key: "Value", Value: md5Data[i]},
+	// 			{Key: "Type", Value: "md5"},
+	// 			{Key: "Date", Value: strNewArray[i]},
+	// 		})
+	// 	}
+	// 	for i := 0; i < len(sha1Data); i++ {
+	// 		collection.InsertOne(ctx, bson.D{
+	// 			{Key: "Value", Value: sha1Data[i]},
+	// 			{Key: "Type", Value: "sha1"},
+	// 			{Key: "Date", Value: strNewArray[i]},
+	// 		})
+	// 	}
+	// 	for i := 0; i < len(sha256Data); i++ {
+	// 		collection.InsertOne(ctx, bson.D{
+	// 			{Key: "Value", Value: sha256Data[i]},
+	// 			{Key: "Type", Value: "sha256"},
+	// 			{Key: "Date", Value: strNewArray[i]},
+	// 		})
+	// 	}
+	// collection.InsertOne(ctx, bson.D{
+	// 	{Key: "Value", Value: md5Result},
+	// 	{Key: "Type", Value: "md5"},
+	// 	{Key: "Date", Value: strNewArray[i]},
+	// })
+	// collection.InsertOne(ctx, bson.D{
+	// 	{Key: "Value", Value: sha1Result},
+	// 	{Key: "Type", Value: "sha1"},
+	// 	{Key: "Date", Value: strNewArray[i]},
+	// })
+	// collection.InsertOne(ctx, bson.D{
+	// 	{Key: "Value", Value: sha256Result},
+	// 	{Key: "Type", Value: "sha256"},
+	// 	{Key: "Date", Value: strNewArray[i]},
+	// })
+	// if err := writeFileMd5(newPath, res); err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
+	// go writeFileSha1(newPath, res)
+	// go writeFileSha256(newPath, res)
+	// }
 	router := gin.Default()
 	router.GET("/lunglinh", getAllLungLinh())
 	router.GET("/lunglinh/:value", getALungLinh())
@@ -176,7 +183,6 @@ func main() {
 	router.PUT("/lunglinh/:value", updateLungLinh())
 	router.DELETE("/lunglinh/:value", deleteLungLinh())
 	router.Run()
-	// router.GET("/lunglinh", getLungLinh)
 
 }
 func writeFileMd5(newPath string, res string) error {
@@ -186,8 +192,6 @@ func writeFileMd5(newPath string, res string) error {
 	if _, err := os.Stat(direct); os.IsNotExist(err) {
 		f, err := os.Create(direct)
 		if err != nil {
-			// log.Fatal(err)
-			// fmt.Println(err)
 			return err
 		}
 		defer f.Close()
@@ -195,7 +199,6 @@ func writeFileMd5(newPath string, res string) error {
 		for i := 0; i < len(strArray); i++ {
 			_, err2 := f.WriteString(string(strArray[i]) + "\n")
 			if err2 != nil {
-				// log.Fatal(err2)
 				fmt.Println(err2)
 				return err2
 			}
@@ -210,8 +213,6 @@ func writeFileSha1(newPath string, res string) error {
 	if _, err := os.Stat(direct); os.IsNotExist(err) {
 		f, err := os.Create(direct)
 		if err != nil {
-			// log.Fatal(err)
-			// fmt.Println(err)
 			return err
 
 		}
@@ -220,42 +221,31 @@ func writeFileSha1(newPath string, res string) error {
 		for i := 0; i < len(strArray); i++ {
 			_, err2 := f.WriteString(string(strArray[i]) + "\n")
 			if err2 != nil {
-				// log.Fatal(err2)
-				// fmt.Println(err2)
 				return err2
 			}
 		}
 	}
-	// fmt.Println(strArray)
-	// defer wg.Done()
 
 	return nil
 }
 
 func writeFileSha256(newPath string, res string) error {
-	// r3, _ := regexp.Compile(`[a-fA-F0-9]{64}`)
 	strArray := regexSha256.FindAllString(res, -1)
-	// direct := newPath + "/" + "sha256.txt"
 	direct := fmt.Sprintf("%s/sha256.txt", newPath)
 	if _, err := os.Stat(direct); os.IsNotExist(err) {
 		f, err := os.Create(direct)
 		if err != nil {
-			// fmt.Println(err)
 			return err
-			// log.Fatal(err)
 		}
 		defer f.Close()
 
 		for i := 0; i < len(strArray); i++ {
 			_, err2 := f.WriteString(string(strArray[i]) + "\n")
 			if err2 != nil {
-				// fmt.Println(err2)
 				return err2
-				// log.Fatal(err2)
 			}
 		}
 	}
-	// defer wg.Done()
 	return nil
 }
 
@@ -264,20 +254,14 @@ func makeRequest(message <-chan Site, c *http.Client, result chan<- string) erro
 		resp, err := c.Get(site.URL)
 		if err != nil {
 			time.Sleep(time.Second * 10)
-			// fmt.Println(err)
 			return err
-			// return
 		}
-		// fmt.Println(resp.Body)
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			// fmt.Println(err)
 			return err
 		}
-		// fmt.Println(j)
 		resp.Body.Close()
 		result <- string(body)
-		// close(result)
 	}
 	return nil
 }
@@ -298,15 +282,8 @@ func getAllLungLinh() gin.HandlerFunc {
 			return
 		}
 		defer results.Close(ctx)
-		// err = results.All(ctx, &lunglinhs)
-		// if err != nil {
-		// 	// fmt, xyz
-		// 	fmt.Println(err)
-		// 	return
-		// }
 		var page int = 1
 		var perPage int64 = 10
-		// total, _ := collection.CountDocuments(ctx, bson.M{})
 		findOptions := options.Find()
 		findOptions.SetSkip((int64(page) - 1) * perPage)
 		findOptions.SetLimit(perPage)
@@ -339,6 +316,8 @@ func createLungLinh() gin.HandlerFunc {
 		result, err := collection.InsertOne(ctx, newLungLinh)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, APIResponse{Message: "Error", Code: 1, Data: nil})
+			//
+			return
 		}
 		c.JSON(http.StatusCreated, APIResponse{Message: "Success", Code: 0, Data: result})
 	}
